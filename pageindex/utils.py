@@ -22,19 +22,33 @@ if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
 
 litellm.drop_params = True
 
+def _build_llm_kwargs(model, api_base=None, api_key=None):
+    """Build extra kwargs for litellm calls, supporting custom endpoints."""
+    kwargs = {"model": model}
+    # Resolve api_base: arg > env var
+    resolved_base = api_base or os.getenv("LLM_API_BASE")
+    if resolved_base:
+        kwargs["api_base"] = resolved_base
+    # Resolve api_key: arg > env var LLM_API_KEY
+    resolved_key = api_key or os.getenv("LLM_API_KEY")
+    if resolved_key:
+        kwargs["api_key"] = resolved_key
+    return kwargs
+
 def count_tokens(text, model=None):
     if not text:
         return 0
     return litellm.token_counter(model=model, text=text)
 
 
-def llm_completion(model, prompt, chat_history=None, return_finish_reason=False):
+def llm_completion(model, prompt, chat_history=None, return_finish_reason=False, api_base=None, api_key=None):
     max_retries = 10
     messages = list(chat_history) + [{"role": "user", "content": prompt}] if chat_history else [{"role": "user", "content": prompt}]
+    llm_kwargs = _build_llm_kwargs(model, api_base=api_base, api_key=api_key)
     for i in range(max_retries):
         try:
             response = litellm.completion(
-                model=model,
+                **llm_kwargs,
                 messages=messages,
                 temperature=0,
             )
@@ -56,13 +70,14 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
 
 
 
-async def llm_acompletion(model, prompt):
+async def llm_acompletion(model, prompt, api_base=None, api_key=None):
     max_retries = 10
     messages = [{"role": "user", "content": prompt}]
+    llm_kwargs = _build_llm_kwargs(model, api_base=api_base, api_key=api_key)
     for i in range(max_retries):
         try:
             response = await litellm.acompletion(
-                model=model,
+                **llm_kwargs,
                 messages=messages,
                 temperature=0,
             )
@@ -570,22 +585,22 @@ def add_node_text_with_labels(node, pdf_pages):
     return
 
 
-async def generate_node_summary(node, model=None):
+async def generate_node_summary(node, model=None, api_base=None, api_key=None):
     prompt = f"""You are given a part of a document, your task is to generate a description of the partial document about what are main points covered in the partial document.
 
     Partial Document Text: {node['text']}
-    
+
     Directly return the description, do not include any other text.
     """
-    response = await llm_acompletion(model, prompt)
+    response = await llm_acompletion(model, prompt, api_base=api_base, api_key=api_key)
     return response
 
 
-async def generate_summaries_for_structure(structure, model=None):
+async def generate_summaries_for_structure(structure, model=None, api_base=None, api_key=None):
     nodes = structure_to_list(structure)
-    tasks = [generate_node_summary(node, model=model) for node in nodes]
+    tasks = [generate_node_summary(node, model=model, api_base=api_base, api_key=api_key) for node in nodes]
     summaries = await asyncio.gather(*tasks)
-    
+
     for node, summary in zip(nodes, summaries):
         node['summary'] = summary
     return structure
@@ -614,15 +629,15 @@ def create_clean_structure_for_description(structure):
         return structure
 
 
-def generate_doc_description(structure, model=None):
+def generate_doc_description(structure, model=None, api_base=None, api_key=None):
     prompt = f"""Your are an expert in generating descriptions for a document.
     You are given a structure of a document. Your task is to generate a one-sentence description for the document, which makes it easy to distinguish the document from other documents.
-        
+
     Document Structure: {structure}
-    
+
     Directly return the description, do not include any other text.
     """
-    response = llm_completion(model, prompt)
+    response = llm_completion(model, prompt, api_base=api_base, api_key=api_key)
     return response
 
 

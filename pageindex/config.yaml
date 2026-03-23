@@ -1,4 +1,4 @@
-model: "gpt-4o-2024-11-20"
+model: "openai/deepseek-v3"
 # model: "anthropic/claude-sonnet-4-6"
 toc_check_page_num: 20
 max_page_num_each_node: 10
@@ -7,3 +7,6 @@ if_add_node_id: "yes"
 if_add_node_summary: "yes"
 if_add_doc_description: "no"
 if_add_node_text: "no"
+# Optional: override API endpoint for third-party providers (e.g. local Ollama, Azure, etc.)
+api_base: "https://dwai.shizhuang-inc.com/ai/gateway"
+api_key: "dw-PDUDwwoa3sYszEZ4LhjtgUxl2Ptw6e0lMH7lJtb6zbU"  # 先用这个，好了再替换
