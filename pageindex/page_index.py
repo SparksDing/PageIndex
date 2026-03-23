@@ -14,12 +14,11 @@ async def check_title_appearance(item, page_list, start_index=1, model=None, api
     title=item['title']
     if 'physical_index' not in item or item['physical_index'] is None:
         return {'list_index': item.get('list_index'), 'answer': 'no', 'title':title, 'page_number': None}
-    
-    
+
+
     page_number = item['physical_index']
     page_text = page_list[page_number-start_index][0]
 
-    
     prompt = f"""
     Your job is to check if the given section appears or starts in the given page_text.
 
@@ -27,10 +26,10 @@ async def check_title_appearance(item, page_list, start_index=1, model=None, api
 
     The given section title is {title}.
     The given page_text is {page_text}.
-    
+
     Reply format:
     {{
-        
+
         "thinking": <why do you think the section appears or starts in the page_text>
         "answer": "yes or no" (yes if the section appears or starts in the page_text, no otherwise)
     }}
@@ -89,6 +88,7 @@ async def check_title_appearance_in_start_concurrent(structure, page_list, model
             tasks.append(check_title_appearance_in_start(item['title'], page_text, model=model, logger=logger, api_base=api_base, api_key=api_key))
             valid_items.append(item)
 
+    set_caller('check_title_appearance_in_start_concurrent')
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for item, result in zip(valid_items, results):
         if isinstance(result, Exception):
@@ -835,6 +835,7 @@ async def fix_incorrect_toc(toc_with_page_number, page_list, incorrect_results, 
         }
 
     # Process incorrect items concurrently
+    set_caller('fix_incorrect_toc')
     tasks = [
         process_and_check_item(item)
         for item in incorrect_results
@@ -930,6 +931,7 @@ async def verify_toc(page_list, list_result, start_index=1, N=None, model=None, 
             indexed_sample_list.append(item_with_index)
 
     # Run checks concurrently
+    set_caller('verify_toc')
     tasks = [
         check_title_appearance(item, page_list, start_index, model, api_base=api_base, api_key=api_key)
         for item in indexed_sample_list
@@ -1022,9 +1024,8 @@ async def process_large_node_recursively(node, page_list, opt=None, logger=None)
             process_large_node_recursively(child_node, page_list, opt, logger=logger)
             for child_node in node['nodes']
         ]
+        set_caller('process_large_node_recursively')
         await asyncio.gather(*tasks)
-    
-    return node
 
 async def tree_parser(page_list, opt, doc=None, logger=None):
     check_toc_result = check_toc(page_list, opt)
@@ -1058,8 +1059,9 @@ async def tree_parser(page_list, opt, doc=None, logger=None):
         process_large_node_recursively(node, page_list, opt, logger=logger)
         for node in toc_tree
     ]
+    set_caller('tree_parser')
     await asyncio.gather(*tasks)
-    
+
     return toc_tree
 
 
@@ -1088,13 +1090,13 @@ def page_index_main(doc, opt=None):
         if opt.if_add_node_summary == 'yes':
             if opt.if_add_node_text == 'no':
                 add_node_text(structure, page_list)
-            await generate_summaries_for_structure(structure, model=opt.model)
+            await generate_summaries_for_structure(structure, model=opt.model, api_base=opt.api_base, api_key=opt.api_key)
             if opt.if_add_node_text == 'no':
                 remove_structure_text(structure)
             if opt.if_add_doc_description == 'yes':
                 # Create a clean structure without unnecessary fields for description generation
                 clean_structure = create_clean_structure_for_description(structure)
-                doc_description = generate_doc_description(clean_structure, model=opt.model)
+                doc_description = generate_doc_description(clean_structure, model=opt.model, api_base=opt.api_base, api_key=opt.api_key)
                 return {
                     'doc_name': get_pdf_name(doc),
                     'doc_description': doc_description,
@@ -1108,7 +1110,7 @@ def page_index_main(doc, opt=None):
     return asyncio.run(page_index_builder())
 
 
-def page_index(doc, model=None, toc_check_page_num=None, max_page_num_each_node=None, max_token_num_each_node=None,
+def page_index(doc, model=None, api_base=None, api_key=None, toc_check_page_num=None, max_page_num_each_node=None, max_token_num_each_node=None,
                if_add_node_id=None, if_add_node_summary=None, if_add_doc_description=None, if_add_node_text=None):
     
     user_opt = {

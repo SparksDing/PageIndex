@@ -22,6 +22,73 @@ if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
 
 litellm.drop_params = True
 
+from contextvars import ContextVar
+
+from contextvars import ContextVar
+
+_current_caller: ContextVar[str] = ContextVar('_current_caller', default='')
+_current_call_stack: ContextVar[list] = ContextVar('_current_call_stack', default=[])
+
+
+def set_caller(name: str):
+    """Explicitly set the caller name for the current async context.
+    Call this before asyncio.gather() in verify_toc / fix_incorrect_toc
+    so that child Tasks inherit the correct caller via ContextVar copy-on-create.
+    """
+    _current_caller.set(name)
+
+_PAGEINDEX_FRAMES = {
+    'check_title_appearance', 'check_title_appearance_in_start',
+    'check_title_appearance_in_start_concurrent',
+    'toc_detector_single_page', 'check_if_toc_extraction_is_complete',
+    'check_if_toc_transformation_is_complete', 'extract_toc_content',
+    'detect_page_index', 'toc_extractor', 'toc_index_extractor',
+    'toc_transformer', 'find_toc_pages', 'add_page_number_to_toc',
+    'generate_toc_continue', 'generate_toc_init',
+    'process_no_toc', 'process_toc_no_page_numbers',
+    'process_toc_with_page_numbers', 'process_none_page_numbers',
+    'check_toc', 'single_toc_item_index_fixer',
+    'fix_incorrect_toc', 'fix_incorrect_toc_with_retries',
+    'verify_toc', 'meta_processor', 'process_large_node_recursively',
+    'tree_parser', 'page_index_main', 'page_index_builder',
+    'generate_node_summary', 'generate_summaries_for_structure',
+    'generate_doc_description',
+}
+
+_CALLER_FRAMES = {
+    # Direct callers of llm_completion (sync)
+    'detect_page_index',
+    'toc_detector_single_page',
+    'toc_extractor',
+    'toc_transformer',
+    'generate_toc_init',
+    'generate_toc_continue',
+    'add_page_number_to_toc',
+    'single_toc_item_index_fixer',
+    'process_none_page_numbers',
+    # Direct callers of llm_acompletion (async — outer frames not visible)
+    'check_title_appearance',
+    'check_title_appearance_in_start',
+    'generate_node_summary',
+    'generate_doc_description',
+    # Fallback outer callers (sync path)
+    'process_no_toc',
+    'process_toc_no_page_numbers',
+    'process_toc_with_page_numbers',
+    'meta_processor',
+    'tree_parser',
+}
+
+def _infer_caller_from_stack() -> str:
+    try:
+        import inspect
+        for frame_info in inspect.stack():
+            if frame_info.function in _CALLER_FRAMES:
+                return frame_info.function
+    except Exception:
+        pass
+    return ''
+
 def _build_llm_kwargs(model, api_base=None, api_key=None):
     """Build extra kwargs for litellm calls, supporting custom endpoints."""
     kwargs = {"model": model}
@@ -33,6 +100,22 @@ def _build_llm_kwargs(model, api_base=None, api_key=None):
     resolved_key = api_key or os.getenv("LLM_API_KEY")
     if resolved_key:
         kwargs["api_key"] = resolved_key
+    # Capture caller and full call stack into ContextVars
+    # If set_caller() was already called (e.g. from verify_toc before gather),
+    # prepend the stack-inferred direct caller but keep the explicit outer caller.
+    try:
+        import inspect
+        frames = inspect.stack()
+        stack = [f.function for f in frames if f.function in _PAGEINDEX_FRAMES]
+        explicit_caller = _current_caller.get()
+        if explicit_caller and explicit_caller not in stack:
+            stack = stack + [explicit_caller]
+        _current_call_stack.set(stack)
+        # Always use the innermost frame as the display caller
+        caller = stack[0] if stack else ''
+        _current_caller.set(caller)
+    except Exception:
+        pass
     return kwargs
 
 def count_tokens(text, model=None):
